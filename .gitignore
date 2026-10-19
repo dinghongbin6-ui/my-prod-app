@@ -1,0 +1,26 @@
+# dependencies
+node_modules
+
+# build
+dist
+dist-ssr
+
+# env
+.env
+*.local
+
+# database
+chat_memory.db
+
+# vector database
+lancedb-data
+
+# knowledge files
+backend/knowledge
+
+# editor
+.vscode
+.idea
+
+# system
+.DS_Store
