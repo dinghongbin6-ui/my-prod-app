@@ -3,6 +3,14 @@ import { useState } from "react";
   // 从环境变量读取后端地址，兜底回退到开发用的 localhost
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
+const generateId = () => {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
 function App() {
   const [question, setQuestion] =
     useState("");
@@ -22,7 +30,7 @@ function App() {
 
       if (!id) {
         id =
-          crypto.randomUUID();
+          generateId();
 
         localStorage.setItem(
           "session_id",
