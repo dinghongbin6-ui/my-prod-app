@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+  // 从环境变量读取后端地址，兜底回退到开发用的 localhost
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 function App() {
   const [question, setQuestion] =
     useState("");
@@ -51,7 +54,7 @@ function App() {
 
       const response =
         await fetch(
-          "http://localhost:3001/ask",
+          `${API_BASE_URL}/ask`,
           {
             method: "POST",
             headers: {
@@ -97,7 +100,7 @@ function App() {
     async () => {
       try {
         await fetch(
-          "http://localhost:3001/clear-memory",
+          `${API_BASE_URL}/clear-memory`,
           {
             method: "POST",
             headers: {
