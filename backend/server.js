@@ -1,7 +1,9 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-
+import multer from "multer";
+import fs from "fs";
+import path from "path";
 import { searchFiles } from "./search.js";
 
 import {
@@ -21,6 +23,99 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+
+/*
+========================================
+知识库目录
+========================================
+*/
+
+const KNOWLEDGE_DIR =
+  "/home/ec2-user/prod-app/backend/knowledge";
+
+if (!fs.existsSync(KNOWLEDGE_DIR)) {
+  fs.mkdirSync(
+    KNOWLEDGE_DIR,
+    {
+      recursive: true
+    }
+  );
+}
+
+/*
+========================================
+上传配置
+========================================
+*/
+
+const storage =
+  multer.diskStorage({
+    destination: (
+      req,
+      file,
+      cb
+    ) => {
+      cb(
+        null,
+        KNOWLEDGE_DIR
+      );
+    },
+
+    filename: (
+      req,
+      file,
+      cb
+    ) => {
+      cb(
+        null,
+        file.originalname
+      );
+    }
+  });
+
+const upload = multer({
+  storage
+});
+
+/*
+========================================
+上传文件
+========================================
+*/
+
+app.post(
+  "/upload",
+  upload.single("file"),
+  async (
+    req,
+    res
+  ) => {
+    try {
+      if (!req.file) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "file required"
+          });
+      }
+
+      res.json({
+        success: true,
+        filename:
+          req.file.filename,
+        path:
+          req.file.path
+      });
+    } catch (error) {
+      res.status(500).json({
+        error:
+          error.message
+      });
+    }
+  }
+);
 
 /*
 ========================================

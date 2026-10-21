@@ -1,200 +1,205 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath }
-  from "url";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 
-import { getEmbedding }
-  from "./embedding.js";
+// 自动加载项目根目录的.env文件
+dotenv.config({ path: path.resolve(fileURLToPath(import.meta.url), '../../.env') });
 
-import {
-  db,
-  getTable
-} from "./lancedb.js";
+// 官方兼容方式加载CommonJS模块
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
 
-const __filename =
-  fileURLToPath(
-    import.meta.url
-  );
+// 【关键】用稳定版pdf-parse，不需要canvas，纯JS解析，兼容所有文字版PDF
+const pdf = require("pdf-parse");
+const mammoth = require("mammoth");
+const XLSX = require("xlsx");
 
-const __dirname =
-  path.dirname(
-    __filename
-  );
+import { getEmbedding } from "./embedding.js";
+import { db, getTable } from "./lancedb.js";
 
-const knowledgeDir =
-  path.join(
-    __dirname,
-    "knowledge"
-  );
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const knowledgeDir = path.join(__dirname, "knowledge");
 
-function splitText(
-  text,
-  chunkSize = 1000,
-  overlap = 200
-) {
-
+/*
+========================================
+文本切块
+========================================
+*/
+function splitText(text, chunkSize = 1000, overlap = 200) {
   const chunks = [];
-
   let start = 0;
-
-  while (
-    start < text.length
-  ) {
-
-    chunks.push(
-      text.slice(
-        start,
-        start + chunkSize
-      )
-    );
-
-    start +=
-      chunkSize - overlap;
+  while (start < text.length) {
+    chunks.push(text.slice(start, start + chunkSize));
+    start += chunkSize - overlap;
   }
-
   return chunks;
 }
 
+/*
+========================================
+TXT / MD / JSON / CSV
+========================================
+*/
+function readTextFile(fullPath) {
+  return fs.readFileSync(fullPath, "utf8");
+}
+
+/*
+========================================
+PDF解析：经典稳定版实现，零依赖
+========================================
+*/
+async function readPdf(fullPath) {
+  const dataBuffer = fs.readFileSync(fullPath);
+  const data = await pdf(dataBuffer);
+  return data.text;
+}
+
+/*
+========================================
+DOCX
+========================================
+*/
+async function readDocx(fullPath) {
+  const result = await mammoth.extractRawText({ path: fullPath });
+  return result.value;
+}
+
+/*
+========================================
+XLS / XLSX
+========================================
+*/
+async function readExcel(fullPath) {
+  const workbook = XLSX.readFile(fullPath);
+  let text = "";
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    text += `\n\nSheet: ${sheetName}\n`;
+    for (const row of rows) {
+      text += row.join(" ") + "\n";
+    }
+  }
+  return text;
+}
+
+/*
+========================================
+统一文件读取分发
+========================================
+*/
+async function readFileContent(fullPath) {
+  const ext = path.extname(fullPath).toLowerCase();
+  switch (ext) {
+    case ".txt":
+    case ".md":
+    case ".json":
+    case ".csv":
+      return readTextFile(fullPath);
+    case ".pdf":
+      return await readPdf(fullPath);
+    case ".docx":
+      return await readDocx(fullPath);
+    case ".xlsx":
+    case ".xls":
+      return await readExcel(fullPath);
+    default:
+      console.log(`⚠️  跳过不支持的文件格式: ${ext}`);
+      return null;
+  }
+}
+
+/*
+========================================
+主构建程序
+========================================
+*/
 async function build() {
+  console.log("🚀 开始构建知识库索引...");
+  console.log(`🔗 当前嵌入API地址: ${process.env.LMSTUDIO_embeddings_API}`);
 
-  let table =
-    await getTable();
+  if (!fs.existsSync(knowledgeDir)) {
+    fs.mkdirSync(knowledgeDir, { recursive: true });
+    console.log("ℹ️  已自动创建knowledge目录，请放入文档后重新运行");
+    return;
+  }
 
-  const files =
-    fs.readdirSync(
-      knowledgeDir
-    );
-
+  let table = await getTable();
+  const files = fs.readdirSync(knowledgeDir);
   const rows = [];
 
   for (const file of files) {
+    try {
+      const fullPath = path.join(knowledgeDir, file);
+      if (!fs.statSync(fullPath).isFile()) continue;
 
-    const fullPath =
-      path.join(
-        knowledgeDir,
-        file
+      // 中文/日文文件名自动转码
+      const fileName = Buffer.from(file, 'latin1').toString('utf8');
+      console.log(`📄 正在读取文件: ${fileName}`);
+
+      let content = await readFileContent(fullPath);
+      if (!content || !content.trim()) {
+        console.log(`⚠️  文件内容为空或无有效文字层: ${fileName}（如果是扫描版/图片版PDF需要OCR识别）`);
+        continue;
+      }
+
+      // 文本清洗
+      content = content
+        .replace(/\r\n/g, "\n")
+        .replace(/\t/g, " ")
+        .replace(/ {2,}/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
+      const chunks = splitText(content);
+      console.log(`✅ ${fileName} => 分割为 ${chunks.length} 个文本块`);
+
+      // 批量生成向量
+      const embeddings = await Promise.all(
+        chunks.map(chunk => getEmbedding(chunk))
       );
 
-    if (
-      !fs
-        .statSync(fullPath)
-        .isFile()
-    ) {
-      continue;
-    }
+      for (let i = 0; i < chunks.length; i++) {
+        rows.push({
+          id: `${fileName}-${i}`,
+          file: fileName,
+          chunkId: i + 1,
+          content: chunks[i],
+          vector: embeddings[i]
+        });
+      }
 
-    const content =
-      fs.readFileSync(
-        fullPath,
-        "utf8"
-      );
-      console.log(content)
-    const cleanedContent = content
-      .replace(/\r\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-
-    const chunks =
-      splitText(
-        cleanedContent
-      );
-      console.log(chunks)
-       console.log("ok")
-    console.log(
-      `${file} -> ${chunks.length} chunks`
-    );
-
-    const embeddings =
-      await Promise.all(
-        chunks.map(
-          chunk =>
-            getEmbedding(
-              chunk
-            )
-        )
-      );
-      console.log(embeddings)
-    for (
-      let i = 0;
-      i < chunks.length;
-      i++
-    ) {
-
-      rows.push({
-        id:
-          `${file}-${i}`,
-
-        file,
-
-        chunkId:
-          i + 1,
-
-        content:
-          chunks[i],
-
-        vector:
-          embeddings[i]
-      });
+    } catch (error) {
+      const fileName = Buffer.from(file, 'latin1').toString('utf8');
+      console.error(`❌ 处理文件失败 ${fileName}:`, error.message);
     }
   }
 
-  if (
-    rows.length === 0
-  ) {
-
-    console.log(
-      "No files found."
-    );
-
+  if (rows.length === 0) {
+    console.log("ℹ️  没有可索引的有效文档内容");
     return;
   }
 
   if (!table) {
-
-    console.log(
-      "Creating table..."
-    );
-   
-    table =
-      await db.createTable(
-        "knowledge",
-        rows
-      );
-
+    console.log("🆕 正在创建LanceDB向量表...");
+    table = await db.createTable("knowledge", rows);
   } else {
-
-    console.log("22222222222222222222222222222222222222222222222222222222")
-    console.log(rows)
-    console.log(
-      "Rebuilding table..."
-    );
-
+    console.log("🔄 正在重建知识库向量索引...");
     try {
-
-      await table.delete(
-        "id != ''"
-      );
-
-    } catch (
-      error
-    ) {
-
-      console.log(
-        "Skip delete."
-      );
+      await table.delete("id != ''");
+    } catch {
+      console.log("ℹ️  旧表为空，跳过清空操作");
     }
-
-    await table.add(
-      rows
-    );
-
+    await table.add(rows);
   }
 
-  console.log(
-    `Done. Indexed ${rows.length} chunks`
-  );
+  console.log(`🎉 索引构建完成！共成功索引 ${rows.length} 个文本块，来自 ${new Set(rows.map(r => r.file)).size} 个文件`);
 }
 
-build().catch(
-  console.error
-);
+build().catch(err => {
+  console.error("❌ 索引构建失败:", err);
+  process.exit(1);
+});

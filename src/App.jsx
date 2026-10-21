@@ -1,25 +1,42 @@
 import { useState } from "react";
 
-  // 从环境变量读取后端地址，兜底回退到开发用的 localhost
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL =
+  import.meta.env
+    .VITE_API_BASE_URL || "";
 
 const generateId = () => {
-  if (globalThis.crypto?.randomUUID) {
+  if (
+    globalThis.crypto
+      ?.randomUUID
+  ) {
     return globalThis.crypto.randomUUID();
   }
 
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
 };
 
 function App() {
-  const [question, setQuestion] =
-    useState("");
+  const [
+    question,
+    setQuestion
+  ] = useState("");
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading
+  ] = useState(false);
 
-  const [messages, setMessages] =
-    useState([]);
+  const [
+    uploading,
+    setUploading
+  ] = useState(false);
+
+  const [
+    messages,
+    setMessages
+  ] = useState([]);
 
   const [sessionId] =
     useState(() => {
@@ -41,19 +58,98 @@ function App() {
       return id;
     });
 
+  const uploadFile =
+    async (
+      event
+    ) => {
+      const file =
+        event.target.files?.[0];
+
+      if (!file) return;
+
+      try {
+        setUploading(true);
+
+        const formData =
+          new FormData();
+
+        formData.append(
+          "file",
+          file
+        );
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/upload`,
+            {
+              method:
+                "POST",
+              body:
+                formData
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error
+          );
+        }
+
+        setMessages(
+          (prev) => [
+            ...prev,
+            {
+              role:
+                "assistant",
+              content: `✅ 文件上传成功：
+
+${data.filename}`
+            }
+          ]
+        );
+      } catch (error) {
+        setMessages(
+          (prev) => [
+            ...prev,
+            {
+              role:
+                "assistant",
+              content:
+                "上传失败：" +
+                error.message
+            }
+          ]
+        );
+      } finally {
+        setUploading(
+          false
+        );
+      }
+    };
+
   const ask = async () => {
-    if (!question.trim()) return;
+    if (
+      !question.trim()
+    )
+      return;
 
     const userQuestion =
       question;
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "user",
-        content: userQuestion
-      }
-    ]);
+    setMessages(
+      (prev) => [
+        ...prev,
+        {
+          role:
+            "user",
+          content:
+            userQuestion
+        }
+      ]
+    );
 
     setQuestion("");
 
@@ -62,43 +158,60 @@ function App() {
 
       const response =
         await fetch(
-          `${API_BASE_URL}/ask`,
+          `${API_BASE_URL}/api/ask`,
           {
-            method: "POST",
+            method:
+              "POST",
+
             headers: {
               "Content-Type":
                 "application/json"
             },
-            body: JSON.stringify({
-              question:
-                userQuestion,
-              sessionId
-            })
+
+            body:
+              JSON.stringify(
+                {
+                  question:
+                    userQuestion,
+
+                  sessionId
+                }
+              )
           }
         );
 
       const data =
         await response.json();
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            data.answer ||
-            "无回答"
-        }
-      ]);
-    } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "错误：" +
-            error.message
-        }
-      ]);
+      setMessages(
+        (prev) => [
+          ...prev,
+          {
+            role:
+              "assistant",
+
+            content:
+              data.answer ||
+              "无回答"
+          }
+        ]
+      );
+    } catch (
+      error
+    ) {
+      setMessages(
+        (prev) => [
+          ...prev,
+          {
+            role:
+              "assistant",
+
+            content:
+              "错误：" +
+              error.message
+          }
+        ]
+      );
     } finally {
       setLoading(false);
     }
@@ -108,43 +221,58 @@ function App() {
     async () => {
       try {
         await fetch(
-          `${API_BASE_URL}/clear-memory`,
+          `${API_BASE_URL}/api/clear-memory`,
           {
-            method: "POST",
+            method:
+              "POST",
+
             headers: {
               "Content-Type":
                 "application/json"
             },
-            body: JSON.stringify({
-              sessionId
-            })
+
+            body:
+              JSON.stringify(
+                {
+                  sessionId
+                }
+              )
           }
         );
 
         setMessages([]);
-      } catch (err) {
-        console.error(err);
+      } catch (
+        err
+      ) {
+        console.error(
+          err
+        );
       }
     };
 
   return (
     <div
       style={{
-        minHeight: "100vh",
+        minHeight:
+          "100vh",
         background:
           "linear-gradient(135deg,#0f172a,#1e293b,#334155)",
-        display: "flex",
+        display:
+          "flex",
         justifyContent:
           "center",
         alignItems:
           "center",
-        padding: "30px"
+        padding:
+          "30px"
       }}
     >
       <div
         style={{
-          width: "100%",
-          maxWidth: "1000px",
+          width:
+            "100%",
+          maxWidth:
+            "1000px",
           background:
             "rgba(255,255,255,.08)",
           backdropFilter:
@@ -153,8 +281,10 @@ function App() {
             "1px solid rgba(255,255,255,.1)",
           borderRadius:
             "24px",
-          padding: "32px",
-          color: "#fff"
+          padding:
+            "32px",
+          color:
+            "#fff"
         }}
       >
         <h1
@@ -163,18 +293,22 @@ function App() {
               "center"
           }}
         >
-          🤖 LM Studio Chat
+          🤖 LM
+          Studio Chat
         </h1>
 
         <div
           style={{
-            height: "450px",
-            overflowY: "auto",
+            height:
+              "450px",
+            overflowY:
+              "auto",
             background:
               "rgba(255,255,255,.06)",
             borderRadius:
               "16px",
-            padding: "20px",
+            padding:
+              "20px",
             marginBottom:
               "20px"
           }}
@@ -206,6 +340,7 @@ function App() {
                     "user"
                       ? "right"
                       : "left",
+
                   marginBottom:
                     "12px"
                 }}
@@ -214,17 +349,22 @@ function App() {
                   style={{
                     display:
                       "inline-block",
+
                     maxWidth:
                       "80%",
+
                     padding:
                       "12px",
+
                     borderRadius:
                       "12px",
+
                     background:
                       msg.role ===
                       "user"
                         ? "#2563eb"
                         : "#475569",
+
                     whiteSpace:
                       "pre-wrap"
                   }}
@@ -246,30 +386,76 @@ function App() {
 
         <textarea
           rows="4"
-          value={question}
-          onChange={(e) =>
+          value={
+            question
+          }
+          onChange={(
+            e
+          ) =>
             setQuestion(
-              e.target.value
+              e.target
+                .value
             )
           }
           placeholder="请输入问题..."
           style={{
-            width: "100%",
-            padding: "16px",
+            width:
+              "100%",
+            padding:
+              "16px",
             borderRadius:
               "14px",
-            border: "none"
+            border:
+              "none"
           }}
         />
 
         <div
           style={{
-            marginTop: "20px",
-            display: "flex",
+            marginTop:
+              "20px",
+
+            display:
+              "flex",
+
+            gap:
+              "10px",
+
             justifyContent:
               "space-between"
           }}
         >
+          <label
+            style={{
+              padding:
+                "12px 24px",
+
+              borderRadius:
+                "12px",
+
+              background:
+                "#22c55e",
+
+              color:
+                "#fff",
+
+              cursor:
+                "pointer"
+            }}
+          >
+            {uploading
+              ? "上传中..."
+              : "上传文件"}
+
+            <input
+              type="file"
+              hidden
+              onChange={
+                uploadFile
+              }
+            />
+          </label>
+
           <button
             onClick={
               clearMemory
@@ -277,12 +463,18 @@ function App() {
             style={{
               padding:
                 "12px 24px",
-              border: "none",
+
+              border:
+                "none",
+
               borderRadius:
                 "12px",
+
               background:
                 "#ef4444",
-              color: "#fff"
+
+              color:
+                "#fff"
             }}
           >
             清空记忆
@@ -290,16 +482,24 @@ function App() {
 
           <button
             onClick={ask}
-            disabled={loading}
+            disabled={
+              loading
+            }
             style={{
               padding:
                 "12px 24px",
-              border: "none",
+
+              border:
+                "none",
+
               borderRadius:
                 "12px",
+
               background:
                 "#2563eb",
-              color: "#fff"
+
+              color:
+                "#fff"
             }}
           >
             发送
